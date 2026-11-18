@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPS Kalman Lab</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet/leaflet.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <script id="app-config" type="application/json">{{ {
+    "googleKey": google_key,
+    "googleMapId": google_map_id,
+    "defaults": defaults,
+    "maxMb": max_mb
+  } | tojson }}</script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <header class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><path d="M4 24 C10 6, 18 28, 28 8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-dasharray="2 3"/><path d="M4 24 C10 10, 18 24, 28 8" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+      </div>
+      <div>
+        <h1>GPS Kalman Lab</h1>
+        <p class="subtitle">Ingesta · estandarización · suavizado</p>
+      </div>
+    </header>
+
+    <!-- 1. Datos -->
+    <section class="card">
+      <h2><span class="step">1</span> Datos</h2>
+      <label class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept="{{ accept }}" hidden>
+        <strong>Arrastra un archivo</strong> o haz clic para elegirlo
+        <small>CSV · GPX · KML/KMZ · GeoJSON — máx. {{ '%g' % max_mb }} MB</small>
+      </label>
+      <div id="file-info" class="file-info hidden"></div>
+      <ul id="warnings" class="warnings"></ul>
+    </section>
+
+    <!-- 2. Filtro -->
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="step">2</span> Filtro de Kalman</h2>
+        <label class="switch" title="Activar / desactivar el filtro (oculta o muestra las rutas filtradas)">
+          <input type="checkbox" id="filter-enabled" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <fieldset id="filter-controls">
+        <div class="field">
+          <label for="model">Modelo dinámico</label>
+          <select id="model">
+            <option value="cv">Velocidad constante (CV)</option>
+            <option value="rw">Posición constante / paseo aleatorio (RW)</option>
+          </select>
+          <p class="hint" id="model-hint"></p>
+        </div>
+
+        <div class="field">
+          <div class="field-row">
+            <label for="q-range">Ruido del proceso <em>Q</em></label>
+            <span class="num"><input type="number" id="q-num" step="any"> <span id="q-unit">m/s²</span></span>
+          </div>
+          <input type="range" id="q-range" min="0" max="1000">
+          <p class="hint">σ<sub>Q</sub>² = <span id="q-var"></span> · más alto = sigue más a las medidas</p>
+        </div>
+
+        <div class="field">
+          <div class="field-row">
+            <label for="r-range">Ruido de la medida <em>R</em></label>
+            <span class="num"><input type="number" id="r-num" step="any"> m</span>
+          </div>
+          <input type="range" id="r-range" min="0" max="1000">
+          <p class="hint">σ<sub>R</sub>² = <span id="r-var"></span> m² · más alto = más suavizado</p>
+        </div>
+
+        <div class="toggle-row">
+          <label class="check"><input type="checkbox" id="smoother"> Suavizado RTS (pasada hacia atrás)</label>
+        </div>
+
+        <div class="toggle-row">
+          <label class="check"><input type="checkbox" id="gate-on"> Rechazar outliers</label>
+          <span class="num small"><input type="number" id="gate" min="1" max="20" step="0.5" value="4"> σ</span>
+        </div>
+
+        <details class="advanced">
+          <summary>Avanzado</summary>
+          <div class="toggle-row">
+            <label class="check"><input type="checkbox" id="filter-ele"> Filtrar elevación</label>
+          </div>
+          <div class="grid2">
+            <label>Q vertical <span class="unit" id="qe-unit">m/s²</span><input type="number" id="q-ele" step="any"></label>
+            <label>R vertical <span class="unit">m</span><input type="number" id="r-ele" step="any"></label>
+            <label>dt sin tiempos <span class="unit">s</span><input type="number" id="dt-default" step="any"></label>
+            <label>σ vel. inicial <span class="unit">m/s</span><input type="number" id="vel0" step="any"></label>
+          </div>
+          <button type="button" class="link" id="reset-params">Restablecer valores por defecto</button>
+        </details>
+      </fieldset>
+
+      <div class="actions">
+        <button id="apply-btn" class="btn primary" disabled>Aplicar</button>
+        <button id="clear-btn" class="btn ghost" disabled>Borrar</button>
+      </div>
+    </section>
+
+    <!-- 3. Rutas -->
+    <section class="card">
+      <h2><span class="step">3</span> Rutas en el mapa</h2>
+      <ul id="route-list" class="route-list">
+        <li class="empty">Carga un archivo para empezar.</li>
+      </ul>
+    </section>
+
+    <footer class="foot">
+      <span id="provider-wrap" class="hidden">
+        Mapa:
+        <select id="provider">
+          <option value="google">Google Maps</option>
+          <option value="leaflet">OpenStreetMap</option>
+        </select>
+      </span>
+      <span class="muted">Filtro en plano local ENU · tiempos reales si existen</span>
+    </footer>
+  </aside>
+
+  <main class="map-wrap">
+    <div id="map"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="busy" class="busy hidden"><div class="spinner"></div></div>
+  </main>
+</div>
+
+<script src="{{ url_for('static', filename='vendor/leaflet/leaflet.js') }}"></script>
+<script src="{{ url_for('static', filename='js/maps.js') }}"></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

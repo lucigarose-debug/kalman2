@@ -1,0 +1,26 @@
+# Blueprint de Render: https://render.com/docs/blueprint-spec
+# Despliegue: New + > Blueprint > selecciona este repositorio.
+# La versión de Python se fija en el archivo .python-version (3.13).
+services:
+  - type: web
+    name: gps-kalman-lab
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn -c gunicorn.conf.py wsgi:app
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: MAX_UPLOAD_MB
+        value: "20"
+      - key: MAX_POINTS
+        value: "200000"
+      # Opcional: si se define, la app usa Google Maps en lugar de OpenStreetMap.
+      # sync: false => Render la pide al crear el servicio y no se guarda en el repo.
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_MAP_ID
+        value: DEMO_MAP_ID
